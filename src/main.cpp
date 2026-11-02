@@ -25,17 +25,30 @@ namespace pib {
         return Mod::get()->getSettingValue<bool>("verbose-log");
     }
 
-    inline void logStage() {
-        if (g_stage == OFF) {
-            log::info("[InputBuffer] F6 Cycle -> STAGE 1: OFF (100% Raw Input)");
-            return;
-        }
-        auto s = STAGES[g_stage];
-        log::info(
-            "[InputBuffer] F6 Cycle -> STAGE {}: {} Ticks All | {} Ticks Wave ({:.1f}f @ 60fps)",
-            g_stage + 1, s.all, s.wave, s.all / 4.0f
-        );
+   inline void logStage() {
+    if (g_stage == OFF) {
+        log::info("[InputBuffer] OFF");
+        Notification::create(
+            "Input Buffer: OFF",
+            NotificationIcon::Warning
+        )->show();
+        return;
     }
+
+    auto s = STAGES[g_stage];
+
+    log::info(
+        "[InputBuffer] STAGE {}: {} All | {} Wave",
+        g_stage + 1, s.all, s.wave
+    );
+
+    Notification::create(
+        fmt::format(
+            "Input Buffer: STAGE {} | {} TICKS",
+            g_stage + 1, s.all
+        ),
+        NotificationIcon::Info
+    )->show();
 }
 
 struct PendingInput {
