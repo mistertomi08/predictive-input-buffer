@@ -1,10 +1,11 @@
+
 // Predictive Input Buffer - recreacion basada en el log de la consola (v4.7)
 //
 // Idea: en lugar de aplicar cada input (press/release) al instante, se encola
 // y se aplica N "ticks" fisicos despues. N depende de la etapa activa y de si
 // el jugador esta en modo wave. F6 cicla: STAGE 1 -> 2 -> 3 -> 4 -> OFF.
 //
-// 1 tick = 1/240 s  (4 ticks = 1 frame @ 60fps, igual que en el log original)
+// 1 tick = 1/240 s (4 ticks = 1 frame @ 60fps)
 
 #include <Geode/Geode.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
@@ -15,47 +16,61 @@
 using namespace geode::prelude;
 
 namespace pib {
-    struct Stage { int all; int wave; };
-    constexpr Stage STAGES[4] = { {2, 2}, {4, 4}, {8, 8}, {16, 8} };
-    constexpr int OFF = 4; // indice 4 = desactivado
+    struct Stage {
+        int all;
+        int wave;
+    };
 
-    inline int g_stage = 0; // arranca en STAGE 1
+    constexpr Stage STAGES[4] = {
+        {2, 2},
+        {4, 4},
+        {8, 8},
+        {16, 8}
+    };
+
+    constexpr int OFF = 4;
+
+    inline int g_stage = 0;
 
     inline bool verbose() {
         return Mod::get()->getSettingValue<bool>("verbose-log");
     }
 
-   inline void logStage() {
-    if (g_stage == OFF) {
-        log::info("[InputBuffer] OFF");
+    inline void logStage() {
+        if (g_stage == OFF) {
+            log::info("[InputBuffer] OFF");
+
+            Notification::create(
+                "Input Buffer: OFF",
+                NotificationIcon::Warning
+            )->show();
+
+            return;
+        }
+
+        auto s = STAGES[g_stage];
+
+        log::info(
+            "[InputBuffer] STAGE {}: {} All | {} Wave",
+            g_stage + 1, s.all, s.wave
+        );
+
         Notification::create(
-            "Input Buffer: OFF",
-            NotificationIcon::Warning
+            fmt::format(
+                "Input Buffer: STAGE {} | {} TICKS",
+                g_stage + 1, s.all
+            ),
+            NotificationIcon::Info
         )->show();
-        return;
     }
 
-    auto s = STAGES[g_stage];
-
-    log::info(
-        "[InputBuffer] STAGE {}: {} All | {} Wave",
-        g_stage + 1, s.all, s.wave
-    );
-
-    Notification::create(
-        fmt::format(
-            "Input Buffer: STAGE {} | {} TICKS",
-            g_stage + 1, s.all
-        ),
-        NotificationIcon::Info
-    )->show();
-}
+} // namespace pib
 
 struct PendingInput {
     bool down;
     int button;
     bool player1;
-    int remaining; // ticks que faltan para aplicarlo
+    int remaining;
 };
 
 class $modify(PIBBaseGameLayer, GJBaseGameLayer) {
@@ -67,7 +82,6 @@ class $modify(PIBBaseGameLayer, GJBaseGameLayer) {
     void handleButton(bool down, int button, bool isPlayer1) {
         auto f = m_fields.self();
 
-        // Pasar directo si esta apagado o si estamos reinyectando un input
         if (f->applying || pib::g_stage == pib::OFF) {
             GJBaseGameLayer::handleButton(down, button, isPlayer1);
             return;
@@ -78,25 +92,33 @@ class $modify(PIBBaseGameLayer, GJBaseGameLayer) {
         auto stage = pib::STAGES[pib::g_stage];
         int delay = isWave ? stage.wave : stage.all;
 
-        f->queue.push_back({ down, button, isPlayer1, delay });
+        f->queue.push_back({down, button, isPlayer1, delay});
 
         if (pib::verbose()) {
             log::info(
                 "*** BUFFERED +{} TICKS ({:.2f} frames @ 60fps) {}! [Limit: {}] ***",
-                delay, delay / 4.0f, down ? "PRESS" : "RELEASE", delay
+                delay, delay / 4.0f,
+                down ? "PRESS" : "RELEASE",
+                delay
             );
         }
     }
 
-    // Se llama una vez por paso de fisica: aqui descontamos ticks.
-   void processCommands(float dt, bool isHalfTick, bool isLastTick) {
+    void processCommands(float dt, bool isHalfTick, bool isLastTick) {
         auto f = m_fields.self();
 
         for (auto it = f->queue.begin(); it != f->queue.end();) {
             it->remaining -= 1;
+
             if (it->remaining <= 0) {
                 f->applying = true;
-                GJBaseGameLayer::handleButton(it->down, it->button, it->player1);
+
+                GJBaseGameLayer::handleButton(
+                    it->down,
+                    it->button,
+                    it->player1
+                );
+
                 f->applying = false;
                 it = f->queue.erase(it);
             } else {
@@ -104,27 +126,36 @@ class $modify(PIBBaseGameLayer, GJBaseGameLayer) {
             }
         }
 
-   GJBaseGameLayer::processCommands(dt, isHalfTick, isLastTick);
+        GJBaseGameLayer::processCommands(dt, isHalfTick, isLastTick);
     }
 };
 
 class $modify(PIBPlayLayer, PlayLayer) {
     void resetLevel() {
-        // Vaciar la cola al reiniciar para no filtrar inputs entre intentos
-        static_cast<PIBBaseGameLayer*>(static_cast<GJBaseGameLayer*>(this))
-            ->m_fields->queue.clear();
+        static_cast<PIBBaseGameLayer*>(
+            static_cast<GJBaseGameLayer*>(this)
+        )->m_fields->queue.clear();
+
         PlayLayer::resetLevel();
     }
 };
 
 class $modify(PIBKeyboard, CCKeyboardDispatcher) {
-    bool dispatchKeyboardMSG(enumKeyCodes key, bool down, bool repeat, double timestamp) {
+    bool dispatchKeyboardMSG(
+        enumKeyCodes key,
+        bool down,
+        bool repeat,
+        double timestamp
+    ) {
         if (down && !repeat && key == KEY_F6) {
             pib::g_stage = (pib::g_stage + 1) % 5;
             pib::logStage();
             return true;
         }
-        return CCKeyboardDispatcher::dispatchKeyboardMSG(key, down, repeat, timestamp);
+
+        return CCKeyboardDispatcher::dispatchKeyboardMSG(
+            key, down, repeat, timestamp
+        );
     }
 };
 
