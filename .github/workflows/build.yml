@@ -23,7 +23,7 @@ jobs:
         uses: geode-sdk/build-geode-mod@main
         with:
           combine: true
-          sdk: latest
+          sdk: given
 
   package:
     name: Package builds
